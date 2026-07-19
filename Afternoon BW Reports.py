@@ -9,10 +9,26 @@ import pdfplumber
 import re
 # import getpass
 
+# Decrypts the stored eHealth password (see credential_store.py)
+try:
+    from credential_store import reveal
+except ImportError:
+    def reveal(value):
+        if value.startswith("ENC:"):
+            raise RuntimeError(
+                "credential_store.py is missing - it must sit next to this "
+                "script to decrypt the saved eHealth password."
+            )
+        return value
+
 # Set configs
-DEFAULT_REPORTS_FOLDER = 'C:\\Users\\gg\\OneDrive - Example\\Desktop\\bw\\reports'
 SCRIPT_DIR = Path(__file__).resolve().parent
 AFTERNOON_TEMPLATE_PATH = os.path.join(SCRIPT_DIR, r"Daily Afternoon Reports yy-mm-dd.oft")
+
+# These three values are filled in for you by Setup_script.py or by the
+# manager app's Options window. You can also edit them by hand.
+# Leave the reports folder blank to use a "reports" subfolder beside this script.
+REPORTS_FOLDER = ""
 EHEALTH_USERNAME = "username"
 EHEALTH_PASSWORD = "password"
 
@@ -49,9 +65,12 @@ EXCLUDE_DIP = {
 # This is to set the date for naming conventions and choosing the correct email template
 DATETIME = datetime.now().strftime("%Y-%m-%d")
 
+# Resolve the base reports folder; a blank setting falls back to ./reports beside the script
+BASE_REPORTS_FOLDER = Path(REPORTS_FOLDER).expanduser() if REPORTS_FOLDER else SCRIPT_DIR / "reports"
+
 #  Sets path to where each afternoon reports folder will be saved in; according to const setup
 FOLDER_PATH = os.path.join(
-    DEFAULT_REPORTS_FOLDER,
+    str(BASE_REPORTS_FOLDER),
     f"Afternoon Reports - {DATETIME}"
 )
 
@@ -117,6 +136,9 @@ def parse_bandwidth_from_pdf(pdf_path, interface=None):
             print(f"WARNING: BW not found in {pdf_path}")
             total_bw = 0
 
+    # Default everything to 0 so a malformed PDF cannot crash the run
+    max_in = min_in = max_out = min_out = 0
+
     for line in text.splitlines():
         parts = line.split()
         if line.startswith("Bits In/sec") and len(parts) >= 10:
@@ -163,7 +185,7 @@ def open_outlook_and_attach_files(folder_path, alerts):
     # Attach files (skip .txt)
     for filename in os.listdir(folder_path):
         file_path = os.path.join(folder_path, filename)
-        if os.path.isfile(file_path) and not filename.endswith(".txt"):
+        if os.path.isfile(file_path) and not filename.lower().endswith(".txt"):
             mail.Attachments.Add(str(file_path))
 
     # Base styling to force font size 12
@@ -190,9 +212,9 @@ def open_outlook_and_attach_files(folder_path, alerts):
             <html>
             <head>
             <style>
-            body, p, div, span, td {
-                "font-family: Aptos !important; font-size: 12pt !important;"
-            }
+            body, p, div, span, td {{
+                font-family: Aptos !important; font-size: 12pt !important;
+            }}
             </style>
             </head>
             <body>
@@ -213,7 +235,7 @@ def open_outlook_and_attach_files(folder_path, alerts):
 # Change login credentials before running script for the first time
 async def run():
     username = EHEALTH_USERNAME
-    password = EHEALTH_PASSWORD
+    password = reveal(EHEALTH_PASSWORD)
 
     # A list is initialized for alerts to be stored in for the bandwidth summary file
     final_alerts = []
@@ -287,11 +309,10 @@ async def run():
 
             debug_print_interface(interface, total_bw, max_in, min_in, max_out, min_out)
 
+            # Guarded so a PDF with no "BW:" line (total_bw = 0) cannot crash the run
             percentages = [
-                max_in / total_bw * 100,
-                min_in / total_bw * 100,
-                max_out / total_bw * 100,
-                min_out / total_bw * 100
+                (val / total_bw * 100) if total_bw > 0 else 0
+                for val in (max_in, min_in, max_out, min_out)
             ]
 
             print(f"  Max In %  : {percentages[0]:.1f}%")
@@ -309,7 +330,7 @@ async def run():
             alerts_for_int = []
             threshold_pct = 70
             for val, is_max, label in raw_values:
-                pct = val / total_bw * 100
+                pct = (val / total_bw * 100) if total_bw > 0 else 0
                 if pct >= threshold_pct:
                     val_str = f"{val:.2f} G" if is_max else format_bandwidth_for_alert(val)
                     alerts_for_int.append(f"{interface} {label} peaked at {val_str}bps")

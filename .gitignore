@@ -1,0 +1,18 @@
+# Generated report output
+reports/
+
+# Python
+__pycache__/
+*.pyc
+
+# PyInstaller build output (BUILD_EXE.bat)
+build/
+dist/
+*.zip
+
+# Inno Setup output (installer.iss)
+Output/
+
+# Uncomment to keep the Outlook email templates out of git
+# (they may contain internal recipients/content):
+# *.oft

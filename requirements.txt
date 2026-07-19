@@ -1,0 +1,8 @@
+# GUI manager
+customtkinter>=5.2
+
+# Report scripts (Morning / Afternoon BW Reports)
+pywin32
+aiohttp
+pdfplumber
+playwright
