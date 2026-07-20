@@ -89,6 +89,9 @@ if you turned on the scheduler.
 Need to change your password or the save folder later? Open the app and
 click **⚙ Options** in the sidebar.
 
+Want to know everything the app can do? Click **📖 User Guide** in the
+sidebar — the full guide opens right inside the app.
+
 ---
 
 ## If something goes wrong

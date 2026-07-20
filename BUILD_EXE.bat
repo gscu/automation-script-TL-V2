@@ -52,6 +52,7 @@ if exist "requirements.txt"         copy /y "requirements.txt"         "%OUT%\" 
 if exist "setup.bat"                copy /y "setup.bat"                "%OUT%\" >nul
 if exist "EASY_SETUP.md"            copy /y "EASY_SETUP.md"            "%OUT%\" >nul
 if exist "README.md"                copy /y "README.md"                "%OUT%\" >nul
+if exist "USER_GUIDE.md"            copy /y "USER_GUIDE.md"            "%OUT%\" >nul
 if exist "Launch Bandwidth Report Manager.vbs" copy /y "Launch Bandwidth Report Manager.vbs" "%OUT%\" >nul
 for %%F in ("*.oft") do copy /y "%%F" "%OUT%\" >nul
 

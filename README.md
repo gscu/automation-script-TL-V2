@@ -53,6 +53,7 @@ schedule the reports in Windows Task Scheduler (Morning 10:58, Afternoon
 | `Daily Morning/Afternoon Reports yy-mm-dd.oft` | Outlook email templates (**required for the email step; not stored in git — copy them in**) |
 | `requirements.txt` | Python dependencies (`pywin32`, `aiohttp`, `pdfplumber`, `playwright`, `customtkinter`) |
 | `EASY_SETUP.md` | Step-by-step install guide for non-technical users |
+| `USER_GUIDE.md` | Day-to-day usage guide — also readable inside the app via the 📖 User Guide button |
 | `BUILD_EXE.bat`, `bandwidth_manager.spec`, `installer.iss`, `INSTALLER_GUIDE.md` | Optional: package the manager as a branded `.exe` / `Setup.exe` for handing out |
 | `reports/` | Default output location — one dated subfolder per run (created automatically) |
 

@@ -46,7 +46,7 @@ What to include in the zip:
 | `Task Morning/Afternoon BW Reports.bat` | Task Scheduler wrappers |
 | `*.oft` templates | Outlook email templates — **don't forget these** |
 | `requirements.txt`, `setup.bat`, `Launch Bandwidth Report Manager.vbs` | install + launch |
-| `EASY_SETUP.md`, `README.md` | instructions |
+| `EASY_SETUP.md`, `README.md`, `USER_GUIDE.md` | instructions (the app's 📖 button reads USER_GUIDE.md) |
 
 ## Route B — Frozen .exe
 

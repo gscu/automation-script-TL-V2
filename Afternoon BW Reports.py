@@ -369,4 +369,9 @@ if __name__ == "__main__":
         print("\nError:")
         traceback.print_exc()
     finally:
-        input("\nPress Enter to close...")
+        # When run from the manager's Console tab stdin is closed, so input()
+        # would raise EOFError and turn a successful run into exit code 1.
+        try:
+            input("\nPress Enter to close...")
+        except EOFError:
+            pass

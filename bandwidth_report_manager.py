@@ -47,6 +47,8 @@ AFTERNOON_TASK_NAME = "Bandwidth Afternoon Reports"
 
 DEFAULT_REPORTS_FOLDER = SCRIPT_DIR / "reports"
 
+USER_GUIDE_FILE = SCRIPT_DIR / "USER_GUIDE.md"
+
 # Keeps schtasks / taskkill from flashing console windows, especially when
 # the manager is packaged as a windowed .exe.
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -470,6 +472,7 @@ class BandwidthReportManager(ctk.CTk):
         self.btn_folder = self.sidebar_button("📁  Open Reports Folder", self.open_reports_folder)
         self.btn_refresh = self.sidebar_button("🔄  Refresh Scheduler", self.refresh_task_status)
         self.btn_options = self.sidebar_button("⚙  Options", self.open_options_window, color="gray")
+        self.btn_guide = self.sidebar_button("📖  User Guide", self.open_help_window, color="gray")
         self.btn_logs = self.sidebar_button("🧹  Clear Log", self.clear_log, color="gray")
         self.btn_exit = self.sidebar_button("⎋  Exit", self.on_close, color="red")
 
@@ -1255,6 +1258,80 @@ class BandwidthReportManager(ctk.CTk):
             hover_color=GRAY_BTN_HOVER,
         )
         close_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+    # --------------------------------------------------------
+    # User guide window
+    # --------------------------------------------------------
+
+    def open_help_window(self):
+        """Shows USER_GUIDE.md inside the app, so users don't have to hunt
+        for the file. Non-modal — it can stay open while reports run."""
+        window = ctk.CTkToplevel(self, fg_color=BG)
+        window.title("User Guide")
+        window.geometry("820x680")
+        window.minsize(640, 480)
+        window.transient(self)
+        window.focus()
+
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkLabel(
+            window,
+            text="📖  User Guide",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        )
+        header.grid(row=0, column=0, sticky="w", padx=24, pady=(20, 8))
+
+        box = ctk.CTkTextbox(
+            window,
+            corner_radius=10,
+            fg_color=WELL,
+            wrap="word",
+            font=ctk.CTkFont(size=13),
+        )
+        box.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 20))
+
+        box.tag_config("h1", foreground=ACCENT_LIGHT)
+        box.tag_config("h2", foreground=ACCENT_LIGHT)
+        box.tag_config("dim", foreground=FAINT)
+        box.tag_config("body", foreground=INK)
+        # Heavier heading fonts via the underlying Tk widget where available;
+        # the color tags above already carry the structure if this fails.
+        try:
+            box._textbox.tag_configure("h1", font=("Segoe UI", 19, "bold"))
+            box._textbox.tag_configure("h2", font=("Segoe UI", 15, "bold"))
+        except Exception:
+            pass
+
+        if USER_GUIDE_FILE.exists():
+            raw = USER_GUIDE_FILE.read_text(encoding="utf-8")
+        else:
+            raw = (
+                "# User guide not found\n\n"
+                "USER_GUIDE.md should sit next to the app. Re-copy it from "
+                "the original folder or repository."
+            )
+
+        for line in raw.splitlines():
+            stripped = line.strip()
+            text = line.replace("**", "").replace("`", "")
+            if stripped.startswith("# "):
+                box.insert("end", text.lstrip("# ") + "\n", "h1")
+            elif stripped.startswith("## "):
+                box.insert("end", "\n" + text.lstrip("# ") + "\n", "h2")
+            elif stripped.startswith("---"):
+                box.insert("end", "─" * 60 + "\n", "dim")
+            elif stripped.startswith("|"):
+                cells = [c.strip() for c in stripped.strip("|").split("|")]
+                if all(set(c) <= {"-", " ", ":"} for c in cells):
+                    continue  # markdown table separator row
+                cells = [c.replace("**", "").replace("`", "") for c in cells if c]
+                box.insert("end", "  •  " + "  —  ".join(cells) + "\n", "body")
+            else:
+                box.insert("end", text + "\n", "body")
+
+        box.configure(state="disabled")
 
     # --------------------------------------------------------
     # Reports folder
