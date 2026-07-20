@@ -22,7 +22,9 @@ If Err.Number <> 0 Then
     shell.Run "pyw.exe """ & gui & """", 0, False
 End If
 If Err.Number <> 0 Then
+    ' Last resort: plain py launcher (there is no "-w" flag; the hidden
+    ' window style already keeps the console out of sight).
     Err.Clear
-    shell.Run "py.exe -w """ & gui & """", 0, False
+    shell.Run "py.exe """ & gui & """", 0, False
 End If
 On Error Goto 0
