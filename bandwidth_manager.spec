@@ -14,7 +14,9 @@
 
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+# Bundle the app icon so the running window can set it (BUILD_EXE.bat also
+# copies bw.ico next to the exe for the loose-file lookup).
+datas = [("bw.ico", ".")]
 binaries = []
 hiddenimports = []
 
@@ -61,7 +63,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,                # drop a bw.ico next to this spec to brand it
+    icon="bw.ico",            # taskbar / title-bar icon for the frozen exe
 )
 
 coll = COLLECT(

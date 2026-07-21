@@ -32,9 +32,21 @@ except ImportError:
 # ============================================================
 
 APP_NAME = "Bandwidth Report Manager"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+# When frozen by PyInstaller, __file__ lives inside the bundle; the icon is
+# shipped next to the .exe, so resolve it from there instead.
+if getattr(sys, "frozen", False):
+    ICON_FILE = Path(sys.executable).resolve().parent / "bw.ico"
+else:
+    ICON_FILE = SCRIPT_DIR / "bw.ico"
+
+# Default window size — chosen to fit common laptop screens (incl. 1080p at
+# 125-150% scaling). The layout scales from here; see _capture_baseline.
+BASE_WIDTH = 1160
+BASE_HEIGHT = 760
 
 MORNING_SCRIPT = SCRIPT_DIR / "Morning BW Reports.py"
 AFTERNOON_SCRIPT = SCRIPT_DIR / "Afternoon BW Reports.py"
@@ -403,8 +415,10 @@ class BandwidthReportManager(ctk.CTk):
         super().__init__()
 
         self.title(f"{APP_NAME}  v{APP_VERSION}")
-        self.geometry("1200x800")
-        self.minsize(1040, 720)
+        self.geometry(f"{BASE_WIDTH}x{BASE_HEIGHT}")
+        # Floor keeps the console from being squeezed out; the layout scales
+        # to match the window between here and any larger size.
+        self.minsize(880, 640)
         self.configure(fg_color=BG)
 
         self.reports_folder = parse_reports_folder_from_script(MORNING_SCRIPT)
@@ -417,6 +431,11 @@ class BandwidthReportManager(ctk.CTk):
         self.active_label: str | None = None
         self._refresh_in_flight = False
 
+        # Responsive scaling state (see _on_resize / _apply_scale).
+        self._scale_job = None
+        self._applied_scale = 1.0
+        self._base_px = None  # window size (physical px) that maps to scale 1.0
+
         self.grid_columnconfigure(0, weight=0)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -426,8 +445,79 @@ class BandwidthReportManager(ctk.CTk):
         self.refresh_task_status()
         self.log("Application started.")
 
+        self.apply_icon(self)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        # Capture the startup size as the "scale = 1.0" reference once the
+        # window has settled, then start reacting to resizes.
+        self.after(250, self._capture_baseline)
+        self.bind("<Configure>", self._on_resize)
         self.after(120, self.drain_console_queue)
+
+    # --------------------------------------------------------
+    # Window icon + responsive scaling
+    # --------------------------------------------------------
+
+    def apply_icon(self, window):
+        """Sets the taskbar/title-bar icon on a window. customtkinter sets its
+        own icon shortly after a window is created, so we re-apply on a small
+        delay to win that race. No-op if the .ico is missing or on non-Windows."""
+        if os.name != "nt" or not ICON_FILE.exists():
+            return
+
+        def _set():
+            try:
+                window.iconbitmap(str(ICON_FILE))
+            except Exception:
+                pass
+
+        _set()
+        window.after(300, _set)
+
+    def _capture_baseline(self):
+        """Record the startup window size as the scale=1.0 reference. We scale
+        by the RATIO to this size rather than an absolute pixel target, which
+        cancels out customtkinter's DPI factor (baked equally into the baseline
+        and every later measurement) — so the UI never double-scales on
+        high-DPI displays, and stays at its designed size until actually
+        resized."""
+        width = self.winfo_width()
+        height = self.winfo_height()
+        if width > 1 and height > 1:
+            self._base_px = (width, height)
+
+    def _on_resize(self, event):
+        """Debounced: only the root window's own resize events matter."""
+        if event.widget is not self:
+            return
+        if self._scale_job is not None:
+            self.after_cancel(self._scale_job)
+        self._scale_job = self.after(140, self._apply_scale)
+
+    def _apply_scale(self):
+        self._scale_job = None
+        if self._base_px is None:
+            self._capture_baseline()
+            return
+
+        width = self.winfo_width()
+        height = self.winfo_height()
+        if width <= 1 or height <= 1:
+            return
+
+        base_w, base_h = self._base_px
+
+        # Scale by whichever dimension grew/shrank less, so text never outgrows
+        # the window. Clamped to a sane range.
+        scale = min(width / base_w, height / base_h)
+        scale = max(0.70, min(1.60, scale))
+
+        # Ignore tiny deltas; this also breaks any feedback loop with the
+        # relayout that set_widget_scaling triggers.
+        if abs(scale - self._applied_scale) < 0.03:
+            return
+
+        self._applied_scale = scale
+        ctk.set_widget_scaling(scale)
 
     # --------------------------------------------------------
     # Layout
@@ -473,7 +563,7 @@ class BandwidthReportManager(ctk.CTk):
         self.btn_refresh = self.sidebar_button("🔄  Refresh Scheduler", self.refresh_task_status)
         self.btn_options = self.sidebar_button("⚙  Options", self.open_options_window, color="gray")
         self.btn_guide = self.sidebar_button("📖  User Guide", self.open_help_window, color="gray")
-        self.btn_logs = self.sidebar_button("🧹  Clear Log", self.clear_log, color="gray")
+        self.btn_logs = self.sidebar_button("🧹  Clear Console", self.clear_console, color="gray")
         self.btn_exit = self.sidebar_button("⎋  Exit", self.on_close, color="red")
 
         bottom_label = ctk.CTkLabel(
@@ -513,16 +603,17 @@ class BandwidthReportManager(ctk.CTk):
         self.main = ctk.CTkFrame(self, corner_radius=0, fg_color=BG)
         self.main.grid(row=0, column=1, sticky="nsew")
         self.main.grid_columnconfigure(0, weight=1)
-        self.main.grid_rowconfigure(4, weight=1)
+        # The console (row 3) takes all spare vertical space.
+        self.main.grid_rowconfigure(3, weight=1)
 
         header = ctk.CTkFrame(self.main, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=28, pady=(26, 12))
+        header.grid(row=0, column=0, sticky="ew", padx=28, pady=(16, 6))
         header.grid_columnconfigure(0, weight=1)
 
         title = ctk.CTkLabel(
             header,
             text=APP_NAME,
-            font=ctk.CTkFont(size=32, weight="bold"),
+            font=ctk.CTkFont(size=28, weight="bold"),
         )
         title.grid(row=0, column=0, sticky="w")
 
@@ -534,16 +625,8 @@ class BandwidthReportManager(ctk.CTk):
         )
         description.grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        self.status_row = ctk.CTkFrame(self.main, fg_color="transparent")
-        self.status_row.grid(row=1, column=0, sticky="ew", padx=28, pady=(8, 12))
-        self.status_row.grid_columnconfigure((0, 1, 2), weight=1)
-
-        self.morning_card = self.status_card(self.status_row, 0, "☀", "Morning Report")
-        self.afternoon_card = self.status_card(self.status_row, 1, "🌤", "Afternoon Report")
-        self.scheduler_card = self.status_card(self.status_row, 2, "📅", "Scheduler Status")
-
         self.action_frame = ctk.CTkFrame(self.main, corner_radius=14, fg_color=CARD)
-        self.action_frame.grid(row=2, column=0, sticky="ew", padx=28, pady=(0, 14))
+        self.action_frame.grid(row=1, column=0, sticky="ew", padx=28, pady=(4, 8))
         self.action_frame.grid_columnconfigure((0, 1), weight=1)
 
         self.action_morning = self.action_button(
@@ -566,36 +649,37 @@ class BandwidthReportManager(ctk.CTk):
         self.detached_var = ctk.BooleanVar(value=False)
         detached_check = ctk.CTkCheckBox(
             self.action_frame,
-            text="Open reports in a separate console window (instead of the Console tab below)",
+            text="Open reports in a separate console window (instead of the Console below)",
             variable=self.detached_var,
             font=ctk.CTkFont(size=12),
             text_color=MUTED,
             checkbox_width=18,
             checkbox_height=18,
         )
-        detached_check.grid(row=1, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 14))
+        detached_check.grid(row=1, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 10))
 
         self.scheduler_frame = ctk.CTkFrame(self.main, corner_radius=14, fg_color=CARD)
-        self.scheduler_frame.grid(row=3, column=0, sticky="ew", padx=28, pady=(0, 14))
+        self.scheduler_frame.grid(row=2, column=0, sticky="ew", padx=28, pady=(0, 8))
         self.scheduler_frame.grid_columnconfigure(0, weight=1)
 
         scheduler_title = ctk.CTkLabel(
             self.scheduler_frame,
             text="Task Scheduler",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            font=ctk.CTkFont(size=19, weight="bold"),
         )
-        scheduler_title.grid(row=0, column=0, sticky="w", padx=20, pady=(18, 4))
+        scheduler_title.grid(row=0, column=0, sticky="w", padx=20, pady=(12, 0))
 
-        scheduler_subtitle = ctk.CTkLabel(
+        # At-a-glance summary that the removed status cards used to carry.
+        self.scheduler_summary = ctk.CTkLabel(
             self.scheduler_frame,
-            text="Enable, disable, and inspect Windows Task Scheduler entries.",
-            font=ctk.CTkFont(size=13),
+            text="●  Checking…",
+            font=ctk.CTkFont(size=13, weight="bold"),
             text_color=MUTED,
         )
-        scheduler_subtitle.grid(row=1, column=0, sticky="w", padx=20, pady=(0, 12))
+        self.scheduler_summary.grid(row=0, column=1, sticky="e", padx=20, pady=(12, 0))
 
         self.task_table = ctk.CTkFrame(self.scheduler_frame, fg_color=WELL, corner_radius=10)
-        self.task_table.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 20))
+        self.task_table.grid(row=1, column=0, columnspan=2, sticky="ew", padx=20, pady=(8, 14))
         self.task_table.grid_columnconfigure(0, weight=2)
         self.task_table.grid_columnconfigure(1, weight=2)
         self.task_table.grid_columnconfigure(2, weight=2)
@@ -605,63 +689,41 @@ class BandwidthReportManager(ctk.CTk):
         self.build_task_table_header()
         self.build_task_rows()
 
-        self.build_output_tabs()
+        self.build_console_panel()
 
-    def build_output_tabs(self):
-        """Bottom panel: Activity Log + Console Output tabs.
-        The console mirrors the FortiAnalyzer activity log: color-coded
-        lines fed from a queue, showing live stdout/stderr of report runs."""
-        self.tabs = ctk.CTkTabview(
-            self.main,
-            corner_radius=14,
-            fg_color=CARD,
-            segmented_button_fg_color=WELL,
-            segmented_button_selected_color=ACCENT,
-            segmented_button_selected_hover_color=ACCENT_HOVER,
-            segmented_button_unselected_color=WELL,
-            segmented_button_unselected_hover_color=GRAY_BTN,
+    def build_console_panel(self):
+        """Always-visible console on the main page (FortiAnalyzer style):
+        one color-coded pane showing app activity AND the live stdout/stderr
+        of report runs — no tabs, no clicking around to find the output."""
+        panel = ctk.CTkFrame(self.main, corner_radius=14, fg_color=CARD)
+        panel.grid(row=3, column=0, sticky="nsew", padx=28, pady=(0, 20))
+        panel.grid_columnconfigure(0, weight=1)
+        panel.grid_rowconfigure(2, weight=1)
+
+        header = ctk.CTkFrame(panel, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 2))
+        header.grid_columnconfigure(1, weight=1)
+
+        title = ctk.CTkLabel(
+            header,
+            text="Console",
+            font=ctk.CTkFont(size=20, weight="bold"),
         )
-        self.tabs.grid(row=4, column=0, sticky="nsew", padx=28, pady=(0, 28))
-
-        log_tab = self.tabs.add("Activity Log")
-        console_tab = self.tabs.add("Console Output")
-
-        # ---- Activity Log tab ----
-        log_tab.grid_columnconfigure(0, weight=1)
-        log_tab.grid_rowconfigure(0, weight=1)
-
-        self.log_box = ctk.CTkTextbox(
-            log_tab,
-            corner_radius=10,
-            fg_color=WELL,
-            font=ctk.CTkFont(size=13),
-        )
-        self.log_box.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
-        self.log_box.configure(state="disabled")
-        for tag, color in (("err", DANGER), ("warn", WARN), ("ok", OK), ("info", INK)):
-            self.log_box.tag_config(tag, foreground=color)
-
-        # ---- Console Output tab ----
-        console_tab.grid_columnconfigure(0, weight=1)
-        console_tab.grid_rowconfigure(1, weight=1)
-
-        console_header = ctk.CTkFrame(console_tab, fg_color="transparent")
-        console_header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        console_header.grid_columnconfigure(0, weight=1)
+        title.grid(row=0, column=0, sticky="w")
 
         self.console_status = ctk.CTkLabel(
-            console_header,
+            header,
             text="●  Idle",
             font=ctk.CTkFont(size=13, weight="bold"),
             text_color=FAINT,
             anchor="w",
         )
-        self.console_status.grid(row=0, column=0, sticky="w", padx=(6, 0))
+        self.console_status.grid(row=0, column=1, sticky="w", padx=(14, 0))
 
         self.stop_button = ctk.CTkButton(
-            console_header,
+            header,
             text="⏹  Stop",
-            width=90,
+            width=92,
             height=30,
             state="disabled",
             fg_color=RED_BTN,
@@ -669,91 +731,55 @@ class BandwidthReportManager(ctk.CTk):
             font=ctk.CTkFont(size=12, weight="bold"),
             command=self.stop_report,
         )
-        self.stop_button.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.stop_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
 
         clear_console_button = ctk.CTkButton(
-            console_header,
+            header,
             text="Clear",
-            width=70,
+            width=72,
             height=30,
             fg_color=GRAY_BTN,
             hover_color=GRAY_BTN_HOVER,
             font=ctk.CTkFont(size=12),
             command=self.clear_console,
         )
-        clear_console_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
+        clear_console_button.grid(row=0, column=3, sticky="e", padx=(8, 0))
+
+        subtitle = ctk.CTkLabel(
+            panel,
+            text="Live app activity and report output (bandwidth readings, alerts, errors).",
+            font=ctk.CTkFont(size=12),
+            text_color=MUTED,
+            anchor="w",
+        )
+        subtitle.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 4))
 
         self.console_box = ctk.CTkTextbox(
-            console_tab,
+            panel,
             corner_radius=10,
             fg_color=CONSOLE_BG,
             text_color="#CDDBEA",
             font=ctk.CTkFont(family="Consolas", size=12),
         )
-        self.console_box.grid(row=1, column=0, sticky="nsew", padx=8, pady=(4, 8))
+        self.console_box.grid(row=2, column=0, sticky="nsew", padx=12, pady=(2, 12))
         self.console_box.configure(state="disabled")
         for tag, color in (("err", DANGER), ("warn", WARN), ("ok", OK),
                            ("info", "#CDDBEA"), ("sys", ACCENT_LIGHT)):
             self.console_box.tag_config(tag, foreground=color)
 
-    def status_card(self, parent, column, icon, title):
-        card = ctk.CTkFrame(parent, corner_radius=14, fg_color=CARD)
-        card.grid(row=0, column=column, sticky="nsew", padx=8)
-        card.grid_columnconfigure(1, weight=1)
-
-        icon_label = ctk.CTkLabel(
-            card,
-            text=icon,
-            width=48,
-            height=48,
-            corner_radius=24,
-            fg_color=ACCENT,
-            font=ctk.CTkFont(size=22),
-        )
-        icon_label.grid(row=0, column=0, rowspan=3, padx=18, pady=22)
-
-        title_label = ctk.CTkLabel(
-            card,
-            text=title,
-            font=ctk.CTkFont(size=17, weight="bold"),
-        )
-        title_label.grid(row=0, column=1, sticky="w", padx=(0, 16), pady=(20, 4))
-
-        status_label = ctk.CTkLabel(
-            card,
-            text="●  Checking…",
-            font=ctk.CTkFont(size=13),
-            text_color=MUTED,
-        )
-        status_label.grid(row=1, column=1, sticky="w", padx=(0, 16))
-
-        detail_label = ctk.CTkLabel(
-            card,
-            text="Next Run: N/A",
-            font=ctk.CTkFont(size=13),
-            text_color=MUTED,
-        )
-        detail_label.grid(row=2, column=1, sticky="w", padx=(0, 16), pady=(0, 20))
-
-        return {
-            "card": card,
-            "status": status_label,
-            "detail": detail_label,
-        }
-
     def action_button(self, parent, column, icon, title, subtitle, command):
         frame = ctk.CTkButton(
             parent,
             command=command,
-            height=84,
+            height=66,
             corner_radius=12,
             text=f"{icon}   {title}\n{subtitle}",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=ctk.CTkFont(size=15, weight="bold"),
             anchor="w",
             fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
         )
-        frame.grid(row=0, column=column, sticky="ew", padx=14, pady=(18, 10))
+        frame.grid(row=0, column=column, sticky="ew", padx=14, pady=(14, 8))
         return frame
 
     def build_task_table_header(self):
@@ -765,7 +791,7 @@ class BandwidthReportManager(ctk.CTk):
                 font=ctk.CTkFont(size=13, weight="bold"),
                 text_color=SOFT,
             )
-            label.grid(row=0, column=col, sticky="w", padx=14, pady=(12, 8))
+            label.grid(row=0, column=col, sticky="w", padx=14, pady=(10, 6))
 
     def build_task_rows(self):
         self.morning_task_labels = self.create_task_row(1, "Morning Task", MORNING_TASK_NAME)
@@ -773,16 +799,16 @@ class BandwidthReportManager(ctk.CTk):
 
     def create_task_row(self, row, display_name, task_name):
         name = ctk.CTkLabel(self.task_table, text=display_name, font=ctk.CTkFont(size=14))
-        name.grid(row=row, column=0, sticky="w", padx=14, pady=10)
+        name.grid(row=row, column=0, sticky="w", padx=14, pady=5)
 
         status = ctk.CTkLabel(self.task_table, text="Unknown", font=ctk.CTkFont(size=14))
-        status.grid(row=row, column=1, sticky="w", padx=14, pady=10)
+        status.grid(row=row, column=1, sticky="w", padx=14, pady=5)
 
         next_run = ctk.CTkLabel(self.task_table, text="N/A", font=ctk.CTkFont(size=14))
-        next_run.grid(row=row, column=2, sticky="w", padx=14, pady=10)
+        next_run.grid(row=row, column=2, sticky="w", padx=14, pady=5)
 
         last_result = ctk.CTkLabel(self.task_table, text="N/A", font=ctk.CTkFont(size=14))
-        last_result.grid(row=row, column=3, sticky="w", padx=14, pady=10)
+        last_result.grid(row=row, column=3, sticky="w", padx=14, pady=5)
 
         switch = ctk.CTkSwitch(
             self.task_table,
@@ -790,7 +816,7 @@ class BandwidthReportManager(ctk.CTk):
             progress_color=ACCENT,
             command=lambda: self.toggle_task(task_name, switch),
         )
-        switch.grid(row=row, column=4, sticky="w", padx=14, pady=10)
+        switch.grid(row=row, column=4, sticky="w", padx=14, pady=5)
 
         return {
             "status": status,
@@ -800,27 +826,19 @@ class BandwidthReportManager(ctk.CTk):
         }
 
     # --------------------------------------------------------
-    # Logging (Activity Log tab — main thread only)
+    # Console (single main-page pane — app activity + report output)
+    # log() writes timestamped app events; console_emit() writes raw
+    # report stdout/stderr. Both land in the same box. The reader thread
+    # never touches Tk — it feeds console_q, drained on the main thread.
     # --------------------------------------------------------
 
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
         tag = classify_log_line(message)
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", f"[{timestamp}] {message}\n", tag)
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
-
-    def clear_log(self):
-        self.log_box.configure(state="normal")
-        self.log_box.delete("1.0", "end")
-        self.log_box.configure(state="disabled")
-        self.log("Log cleared.")
-
-    # --------------------------------------------------------
-    # Console output (Console tab — fed from a queue so that
-    # background reader threads never touch Tk widgets)
-    # --------------------------------------------------------
+        self.console_box.configure(state="normal")
+        self.console_box.insert("end", f"[{timestamp}] {message}\n", tag)
+        self.console_box.see("end")
+        self.console_box.configure(state="disabled")
 
     def console_emit(self, text: str, kind: str = "auto"):
         tag = classify_log_line(text) if kind == "auto" else kind
@@ -833,6 +851,7 @@ class BandwidthReportManager(ctk.CTk):
         self.console_box.configure(state="normal")
         self.console_box.delete("1.0", "end")
         self.console_box.configure(state="disabled")
+        self.log("Console cleared.")
 
     def drain_console_queue(self):
         try:
@@ -909,7 +928,6 @@ class BandwidthReportManager(ctk.CTk):
         """Runs the report with stdout/stderr streamed into the Console tab."""
         if self.active_process is not None and self.active_process.poll() is None:
             self.log("A report is already running — wait for it to finish or press Stop.")
-            self.tabs.set("Console Output")
             return
 
         python = find_python()
@@ -949,8 +967,7 @@ class BandwidthReportManager(ctk.CTk):
 
         self.active_process = process
         self.set_console_running(label)
-        self.tabs.set("Console Output")
-        self.log(f"Launching {label}: {launch_target} (output in Console tab)")
+        self.log(f"Launching {label}: {launch_target} (output below)")
 
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.console_emit(f"── [{timestamp}] {label}: {' '.join(command)} ──", "sys")
@@ -1021,6 +1038,7 @@ class BandwidthReportManager(ctk.CTk):
         window.transient(self)
         window.after(120, window.grab_set)
         window.focus()
+        self.apply_icon(window)
 
         window.grid_columnconfigure(0, weight=1)
 
@@ -1272,6 +1290,7 @@ class BandwidthReportManager(ctk.CTk):
         window.minsize(640, 480)
         window.transient(self)
         window.focus()
+        self.apply_icon(window)
 
         window.grid_columnconfigure(0, weight=1)
         window.grid_rowconfigure(1, weight=1)
@@ -1356,7 +1375,7 @@ class BandwidthReportManager(ctk.CTk):
             return
 
         self._refresh_in_flight = True
-        self.scheduler_card["status"].configure(text="●  Checking…", text_color=MUTED)
+        self.scheduler_summary.configure(text="●  Checking…", text_color=MUTED)
 
         def worker():
             morning = get_task_status(MORNING_TASK_NAME)
@@ -1371,9 +1390,6 @@ class BandwidthReportManager(ctk.CTk):
         self.update_task_row(self.morning_task_labels, morning)
         self.update_task_row(self.afternoon_task_labels, afternoon)
 
-        self.update_status_card(self.morning_card, morning)
-        self.update_status_card(self.afternoon_card, afternoon)
-
         enabled_count = int(morning["enabled"]) + int(afternoon["enabled"])
         if enabled_count == 2:
             scheduler_color = OK
@@ -1382,25 +1398,12 @@ class BandwidthReportManager(ctk.CTk):
         else:
             scheduler_color = DANGER
 
-        self.scheduler_card["status"].configure(
-            text=f"●  {enabled_count}/2 tasks enabled",
+        self.scheduler_summary.configure(
+            text=f"●  {enabled_count}/2 enabled · checked {datetime.now().strftime('%H:%M:%S')}",
             text_color=scheduler_color,
-        )
-        self.scheduler_card["detail"].configure(
-            text=f"Checked at {datetime.now().strftime('%H:%M:%S')}"
         )
 
         self.log("Scheduler status refreshed.")
-
-    def update_status_card(self, card: dict, task_info: dict):
-        if not task_info["exists"]:
-            card["status"].configure(text="●  Task not found", text_color=DANGER)
-            card["detail"].configure(text="Next Run: N/A")
-            return
-
-        color = OK if task_info["enabled"] else WARN
-        card["status"].configure(text=f"●  {task_info['status']}", text_color=color)
-        card["detail"].configure(text=f"Next Run: {task_info['next_run']}")
 
     def update_task_row(self, row_labels, task_info):
         if not task_info["exists"]:

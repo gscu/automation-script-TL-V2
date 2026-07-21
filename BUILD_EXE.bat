@@ -54,6 +54,7 @@ if exist "EASY_SETUP.md"            copy /y "EASY_SETUP.md"            "%OUT%\" 
 if exist "README.md"                copy /y "README.md"                "%OUT%\" >nul
 if exist "USER_GUIDE.md"            copy /y "USER_GUIDE.md"            "%OUT%\" >nul
 if exist "Launch Bandwidth Report Manager.vbs" copy /y "Launch Bandwidth Report Manager.vbs" "%OUT%\" >nul
+if exist "bw.ico"                   copy /y "bw.ico"                   "%OUT%\" >nul
 for %%F in ("*.oft") do copy /y "%%F" "%OUT%\" >nul
 
 REM --- zip it for distribution ------------------------------------

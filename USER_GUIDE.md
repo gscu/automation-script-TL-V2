@@ -13,29 +13,31 @@ at the top. You review the email and press Send.
 
 ## The main window
 
-**Status cards (top row)** — one card each for the Morning task, the
-Afternoon task, and an overall scheduler summary. They show whether the
-scheduled task exists, its state, and its next run time.
-
 **Run buttons** — "Run Morning Report Now" and "Run Afternoon Report Now"
 start a report immediately. While one is running, both buttons are
-disabled until it finishes.
+disabled until it finishes. (The sidebar has the same two buttons.)
 
 **Task Scheduler panel** — the table lists the two Windows scheduled
 tasks with their status, next run, and last result. The switch on each
-row enables or disables that task without deleting it.
+row enables or disables that task without deleting it. The "N/2 enabled"
+summary on the right is an at-a-glance count of active tasks.
 
-**Bottom tabs** — "Activity Log" records what the app itself does.
-"Console Output" shows the live output of a running report (see below).
+**Console** — the panel filling the bottom of the window is always
+visible, so you never have to click around to find output. It streams
+both what the app is doing and the live output of a running report
+(bandwidth readings, alerts, errors), color-coded (see below). The
+window is fully resizable — drag any edge and everything, including the
+console, scales with it.
 
 ---
 
 ## Running a report
 
 1. Click **Run Morning Report Now** (or Afternoon).
-2. The app switches to the **Console Output** tab and streams the
-   report's progress live — no separate console window opens:
-   - White/grey lines — normal progress (each interface being processed)
+2. The **Console** at the bottom streams the report's progress live — no
+   separate console window opens:
+   - White/grey lines — normal progress (each interface being processed,
+     with its bandwidth readings)
    - Green lines — success messages
    - Yellow lines — warnings and retries (usually fine; the portal is
      often slow and the script retries up to 10 times per interface)
@@ -49,11 +51,12 @@ row enables or disables that task without deleting it.
    run saves its PDFs and summary (one dated subfolder per run).
 
 **If a run gets stuck**, press the red **⏹ Stop** button in the Console
-Output tab, then simply run it again.
+header, then simply run it again. **Clear** empties the console; the
+sidebar's **🧹 Clear Console** does the same.
 
 **Prefer a separate console window?** Tick "Open reports in a separate
 console window" above the run buttons — the output then goes to its own
-window instead of the Console tab. Most people can leave this off.
+window instead of the in-app console. Most people can leave this off.
 
 ---
 
@@ -111,5 +114,5 @@ that is by design. Re-entering it during setup (or in ⚙ Options) fixes it.
 | Run finishes but no email opens | Outlook desktop isn't installed, or the two `.oft` template files are missing from the app folder |
 | Task shows "Not found" | Scheduling was never set up — re-run `Setup_script.py` |
 
-Still stuck? Screenshot the Console Output tab (the colored lines tell
-most of the story) and send it to whoever maintains the app.
+Still stuck? Screenshot the Console panel (the colored lines tell most of
+the story) and send it to whoever maintains the app.

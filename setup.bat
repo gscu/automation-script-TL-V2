@@ -50,12 +50,14 @@ if errorlevel 1 (
 
 REM --- desktop shortcut -------------------------------------------
 echo   [4/4] Adding a Desktop shortcut...
+set "ICON=%~dp0bw.ico"
+if not exist "%ICON%" set "ICON=%SystemRoot%\System32\shell32.dll,165"
 powershell -NoProfile -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Bandwidth Report Manager.lnk');" ^
   "$s.TargetPath='%SystemRoot%\System32\wscript.exe';" ^
   "$s.Arguments='\"%~dp0Launch Bandwidth Report Manager.vbs\"';" ^
   "$s.WorkingDirectory='%~dp0';" ^
-  "$s.IconLocation='%SystemRoot%\System32\shell32.dll,165';" ^
+  "$s.IconLocation='%ICON%';" ^
   "$s.Save()" >nul 2>nul
 
 REM --- guided configuration ---------------------------------------

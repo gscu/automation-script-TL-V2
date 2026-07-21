@@ -74,7 +74,7 @@ Python is a free program this app needs to run.
    A dark blue window opens.
 2. Click the big **"Run Morning Report Now"** button
    (or Afternoon — whichever applies right now).
-3. The app switches to the **Console Output** tab at the bottom.
+3. Watch the **Console** at the bottom of the window.
    Text will scroll by as the report runs — that's the report working.
    - Green lines = good
    - Yellow lines = minor warnings, usually fine
@@ -119,10 +119,10 @@ re-enter it in **⚙ Options** (or run `setup` again) and it's fixed.
 template files from Step 2.4 are in the app folder.
 
 **A report is stuck and won't finish**
-→ Go to the **Console Output** tab and click the red **⏹ Stop** button.
+→ In the **Console** at the bottom, click the red **⏹ Stop** button.
 Then just run it again.
 
 **Anything else**
-→ Screenshot the window (including the Console tab) and send it to
+→ Screenshot the window (including the Console at the bottom) and send it to
 whoever gave you this app. The colored text at the bottom usually tells
 us exactly what happened.
