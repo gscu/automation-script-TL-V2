@@ -153,22 +153,34 @@ def debug_print_interface(interface, total_bw, max_in, min_in, max_out, min_out)
     print(f"  Total BW : {total_bw} Gbps")
 
 # PDF DOWNLOAD WITH RETRY
-# This was added due to TELUS's portal being inaccessible on the first try. When the script has trouble accessing the site, it will attempt to do it again for 9 times (10 in total) until retry limit stops
+# This was added due to TELUS's portal being inaccessible on the first try. When the script has trouble accessing the site, it will attempt to do it again for 9 times (10 in total) until retry limit stops.
+# The retry now also covers transient connection/DNS failures (e.g. a momentary
+# "getaddrinfo failed" on one interface). Previously only the "report not ready"
+# case retried, so a single network blip aborted the whole run.
 async def download_pdf_with_retry(session, url, path, interface, retries=10, delay=10):
     for attempt in range(1, retries + 1):
-        async with session.get(url) as resp:
-            content_type = resp.headers.get("Content-Type", "").lower()
-            body = await resp.read()
+        try:
+            async with session.get(url) as resp:
+                content_type = resp.headers.get("Content-Type", "").lower()
+                body = await resp.read()
 
-            if "application/pdf" in content_type and body.startswith(b"%PDF"):
-                with open(path, "wb") as f:
-                    f.write(body)
-                return
+                if "application/pdf" in content_type and body.startswith(b"%PDF"):
+                    with open(path, "wb") as f:
+                        f.write(body)
+                    return
 
-        print(f"{interface}: report not ready (attempt {attempt}/{retries})")
+            print(f"{interface}: report not ready (attempt {attempt}/{retries})")
+
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            # Transient connection/DNS problem (e.g. "getaddrinfo failed").
+            # Retry instead of letting it kill the run; the blip usually
+            # clears within a few seconds.
+            print(f"{interface}: connection problem, retrying "
+                  f"(attempt {attempt}/{retries}): {error}")
+
         await asyncio.sleep(delay)
 
-    raise RuntimeError(f"{interface}: PDF never became ready")
+    raise RuntimeError(f"{interface}: could not download a valid PDF after {retries} attempts")
 
 # EMAIL FUNCTION
 def open_outlook_and_attach_files(folder_path, alerts):
