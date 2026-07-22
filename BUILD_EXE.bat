@@ -46,6 +46,7 @@ if exist "Morning BW Reports.py"    copy /y "Morning BW Reports.py"    "%OUT%\" 
 if exist "Afternoon BW Reports.py"  copy /y "Afternoon BW Reports.py"  "%OUT%\" >nul
 if exist "Setup_script.py"          copy /y "Setup_script.py"          "%OUT%\" >nul
 if exist "credential_store.py"      copy /y "credential_store.py"      "%OUT%\" >nul
+if exist "interfaces_config.py"     copy /y "interfaces_config.py"     "%OUT%\" >nul
 if exist "Task Morning BW Reports.bat"   copy /y "Task Morning BW Reports.bat"   "%OUT%\" >nul
 if exist "Task Afternoon BW Reports.bat" copy /y "Task Afternoon BW Reports.bat" "%OUT%\" >nul
 if exist "requirements.txt"         copy /y "requirements.txt"         "%OUT%\" >nul

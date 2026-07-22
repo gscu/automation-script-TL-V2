@@ -47,6 +47,7 @@ schedule the reports in Windows Task Scheduler (Morning 10:58, Afternoon
 | `bandwidth_report_manager.py` | The desktop app: run reports, watch live output in the always-on Console, stop a stuck run, toggle scheduled tasks, edit settings |
 | `Setup_script.py` | Guided setup: installs packages, patches credentials/folder into the report scripts, creates the Task Scheduler entries |
 | `credential_store.py` | Encrypts/decrypts the eHealth password with Windows DPAPI so it never sits in the scripts as plain text |
+| `interfaces_config.py` | Default interface list + bandwidth limits, and the loader/saver for `interfaces.json` (shared by the scripts and the app's Interfaces editor) |
 | `setup.bat` | One-click installer — run this first on a new machine |
 | `Launch Bandwidth Report Manager.vbs` | Opens the app with no console window (what the Desktop shortcut points at) |
 | `bw.ico` / `make_icon.py` | The app icon, and the Pillow script that regenerates it (only needed if you want to change the icon) |
@@ -69,23 +70,31 @@ schedule the reports in Windows Task Scheduler (Morning 10:58, Afternoon
   reports folder). Changes are written straight into the two report
   scripts — no separate config file.
 
-## Configuration knobs (edit the report scripts)
+## Configuration knobs
 
-All in `Morning BW Reports.py` and `Afternoon BW Reports.py` — keep the
-two files in sync:
+**Interfaces** — edit these in the app: sidebar → **🖧 Interfaces**. Add,
+rename, or delete interfaces (delete asks first), set an optional per-interface
+**bandwidth limit** in Gbps (blank = read it from the report PDF, the default),
+and toggle **Skip low-BW alert** per interface. Saving writes `interfaces.json`,
+which both report scripts read at startup. The built-in defaults live in
+[`interfaces_config.py`](interfaces_config.py) (used whenever `interfaces.json`
+is absent), and "Restore defaults" in the editor brings them back.
 
-- `INTERFACES` — the list of interfaces to report on. Add/remove/replace
-  lines as the data centers change.
-- `EXCLUDE_DIP` — interfaces that are known to idle low and shouldn't
-  trigger "dipped below 1 Mbps" alerts.
+The rest are still edited in `Morning BW Reports.py` / `Afternoon BW Reports.py`
+(keep the two in sync):
+
 - `threshold_pct` (in `run()`) — the peak-alert threshold, default 70%.
 - `MIN_THRESHOLD_GBPS` (in `run()`) — the dip-alert floor, default 0.001 (1 Mbps).
 - `FORM_PAGE` — the portal URL; update it here if TELUS changes it.
-- The special-case override in `parse_bandwidth_from_pdf()` pins the
-  `...SGWP...` interface to 10 Gbps because its PDF doesn't state total BW.
 
 Schedule times live in `SCHEDULED_TASKS` in `Setup_script.py`
 (re-run setup after changing them).
+
+Each run now saves into its **own timestamped folder** (e.g.
+`Morning Reports - 2026-07-22 14-30-05`), so repeated runs on the same day
+no longer share a folder or overwrite each other's files.
+
+The app has a **light/dark toggle** at the bottom of the sidebar.
 
 ## Good to know
 

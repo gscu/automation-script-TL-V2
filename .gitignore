@@ -1,6 +1,10 @@
 # Generated report output
 reports/
 
+# Local interface list (real MSUIDs / bandwidths) written by the app.
+# Defaults live in interfaces_config.py; each machine keeps its own copy.
+interfaces.json
+
 # Python
 __pycache__/
 *.pyc

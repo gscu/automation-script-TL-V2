@@ -29,6 +29,9 @@ both what the app is doing and the live output of a running report
 window is fully resizable — drag any edge and everything, including the
 console, scales with it.
 
+**Appearance** — the **Light / Dark** toggle at the bottom of the sidebar
+switches the whole app between themes on the spot.
+
 ---
 
 ## Running a report
@@ -48,7 +51,9 @@ console, scales with it.
    worked. An Outlook email opens with the PDFs attached and the alert
    summary on top — review it and press Send.
 5. **📁 Open Reports Folder** in the sidebar opens the folder where every
-   run saves its PDFs and summary (one dated subfolder per run).
+   run saves its PDFs and summary. Each run gets its **own timestamped
+   subfolder** (e.g. `Morning Reports - 2026-07-22 14-30-05`), so running
+   twice in a day never mixes files into one folder.
 
 **If a run gets stuck**, press the red **⏹ Stop** button in the Console
 header, then simply run it again. **Clear** empties the console; the
@@ -85,10 +90,30 @@ deliberately preparing this folder to move to another PC — an encrypted
 password cannot travel; a plain-text one can (re-encrypt it there by
 saving Options once).
 
-**Reports Folder** — where the dated report folders are created. Leave
+**Reports Folder** — where the per-run report folders are created. Leave
 it as suggested unless you want them somewhere specific (e.g. OneDrive).
 
 Changes take effect the next time a report runs.
+
+---
+
+## 🖧 Interfaces
+
+Open it from **🖧 Interfaces** in the sidebar. This is where you manage
+which interfaces the reports cover, without touching any code.
+
+- **Interface (MSUID)** — the exact filter text typed into the portal for
+  each report. Edit any name in place.
+- **Bandwidth limit (Gbps)** — the total capacity used to work out the
+  "% of capacity" peaks. Leave it **blank** to read the capacity straight
+  from each report PDF (the normal case); fill it in only for interfaces
+  whose PDF doesn't state a bandwidth.
+- **Skip low-BW alert** — tick this for an interface that is expected to
+  sit idle, so it won't raise a "dipped below 1 Mbps" alert.
+- **＋ Add interface** adds a blank row; the **🗑** button deletes a row
+  (it asks first).
+- **Restore defaults** brings back the built-in list; **Save** writes your
+  changes. Saved changes apply to the **next** report run.
 
 ---
 

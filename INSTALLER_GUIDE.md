@@ -43,6 +43,7 @@ What to include in the zip:
 | `Morning BW Reports.py`, `Afternoon BW Reports.py` | the report scripts |
 | `Setup_script.py` | guided configuration / scheduled-task creation |
 | `credential_store.py` | password encryption (DPAPI) — the report scripts import it |
+| `interfaces_config.py` | interface list + bandwidth defaults — the report scripts and the Interfaces editor import it |
 | `Task Morning/Afternoon BW Reports.bat` | Task Scheduler wrappers |
 | `*.oft` templates | Outlook email templates — **don't forget these** |
 | `requirements.txt`, `setup.bat`, `Launch Bandwidth Report Manager.vbs` | install + launch |

@@ -35,43 +35,39 @@ EHEALTH_PASSWORD = "password"
 # This is the site that redirects straight to standard reports type, if the URL changes from TELUS, change this link as well
 FORM_PAGE = "https://ehealth-gonet.telus.com/cgi-bin/nhWebRpt?func=rptLaunch&report=Standard&reportType=trend&subjectType=element"
 
-# These are the interfaces on the GUELPH and KINGSTON data centers
-# You can add, remove, or replace an interface
-INTERFACES = [
-    "EXAMPLES-GO02EXP57WR01XXPP-TH-10GEth0/1*",
-    "EXAMPLES-GO02EXP57WR02XXPP-TH-10GEth0/1*",
-    "EXAMPLES-GO02EXP57WR03XXPP-TH-10GEth0/1*",
-    "EXAMPLES-GO02EXP57WR04XXPP-TH-10GEth0/1*",
-    "EXAMPLES-GO02EXP57WR05XXPP-TH-10GEth0/1*",
-    "EXAMPLES-GO02EXP57WR06XXPP-TH-10GEth0/1*",
-    "EXAMPLES-GO02EXP57WR07XXPP-TH-10GEth0/1*",
-    "EXAMPLEI-GO020IN02WR01MVPP-TH-10GEth0/1*",
-    "EXAMPLEI-GO020IN02WR02MVPP-TH-10GEth0/1*",
-    "EXAMPLEI-GO020IN02WR03MVPP-TH-10GEth0/1*",
-    "EXAMPLEI-GO020IN02WR04MVPP-TH-10GEth0/1*",
-    "EXAMPLEI-GO020IN02WR05MVPP-TH-10GEth0/1*",
-    "EXAMPLEI-GO020IN02WR06MVPP-TH-10GEth0/1*",
-    "EXAMPLEO-GO02000F4WR01WANP-TH-10GEth0/1*",
-    "EXAMPLEO-GO03SGWP-TH-10GEth0/1*"
-]
-
-# The script uniformly analyzes all interfaces if they under/over perform
-# These two interfaces usually underperform, so they are excluded from being analyzed for performing under 1 Mbps
-EXCLUDE_DIP = {
-    "EXAMPLEI-GO020IN02WR06MVPP-TH-10GEth0/1*",
-    "EXAMPLEI-GO020IN02WR03MVPP-TH-10GEth0/1*"
-}
+# Interfaces (GUELPH + KINGSTON data centers) now come from interfaces.json,
+# editable in the manager app's Interfaces screen. If that file is missing the
+# built-in defaults in interfaces_config.py are used, so the run never has an
+# empty list. Add/remove/edit interfaces and their bandwidth limits there.
+try:
+    import interfaces_config
+    _INTERFACE_CONFIG = interfaces_config.load()
+    INTERFACES = interfaces_config.names(_INTERFACE_CONFIG)
+    EXCLUDE_DIP = interfaces_config.excluded_dip_names(_INTERFACE_CONFIG)
+    # Per-interface fixed total-capacity overrides; interfaces without one
+    # fall back to reading "BW:" from the report PDF.
+    BW_OVERRIDES = interfaces_config.bandwidth_overrides(_INTERFACE_CONFIG)
+except ImportError:
+    # interfaces_config.py must sit next to this script; fall back to a minimal
+    # built-in list so a stray copy of just this file can still run.
+    INTERFACES = ["EXAMPLEO-GO03SGWP-TH-10GEth0/1*"]
+    EXCLUDE_DIP = set()
+    BW_OVERRIDES = {"EXAMPLEO-GO03SGWP-TH-10GEth0/1*": 10.0}
 
 # This is to set the date for naming conventions and choosing the correct email template
 DATETIME = datetime.now().strftime("%Y-%m-%d")
 
+# A per-run timestamp (down to the second) so every run gets its own folder
+# instead of piling multiple runs into one dated folder.
+RUN_STAMP = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+
 # Resolve the base reports folder; a blank setting falls back to ./reports beside the script
 BASE_REPORTS_FOLDER = Path(REPORTS_FOLDER).expanduser() if REPORTS_FOLDER else SCRIPT_DIR / "reports"
 
-#  Sets path to where each afternoon reports folder will be saved in; according to const setup
+#  Sets path to where this run's afternoon reports folder will be saved in
 FOLDER_PATH = os.path.join(
     str(BASE_REPORTS_FOLDER),
-    f"Afternoon Reports - {DATETIME}"
+    f"Afternoon Reports - {RUN_STAMP}"
 )
 
 # This function checks the folder if it doesn't exist
@@ -119,9 +115,12 @@ def parse_bits_line(parts):
         return 0, 0
 
 def parse_bandwidth_from_pdf(pdf_path, interface=None):
-    if interface and interface.startswith("EXAMPLEO-GO03SGWP-TH-10GEth0/1"):
-        total_bw = 10.0
-        print(f"DEBUG OVERRIDE: {interface} total BW statically set to 10 Gbps")
+    # A configured bandwidth limit (from interfaces.json) wins; otherwise read
+    # "BW:" from the PDF below.
+    override = BW_OVERRIDES.get(interface) if interface else None
+    if override is not None:
+        total_bw = override
+        print(f"DEBUG OVERRIDE: {interface} total BW set to {override} Gbps (configured)")
     else:
         total_bw = None
 

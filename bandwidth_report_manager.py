@@ -26,13 +26,26 @@ except ImportError:
     def dpapi_available():
         return False
 
+# Shared interface list/bandwidth config (see interfaces_config.py). The
+# Interfaces editor reads/writes it; the report scripts read it at startup.
+try:
+    import interfaces_config
+except ImportError:
+    interfaces_config = None
+
+
+def format_bandwidth_value(value) -> str:
+    """Render a Gbps override without trailing '.0' clutter (10.0 -> '10')."""
+    number = float(value)
+    return str(int(number)) if number.is_integer() else str(number)
+
 
 # ============================================================
 # Basic configuration
 # ============================================================
 
 APP_NAME = "Bandwidth Report Manager"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -69,32 +82,45 @@ NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 # ============================================================
 # Palette
 # ============================================================
-# Status colors are theme-invariant (same idea as the FortiAnalyzer app):
-# a log line keeps its meaning-color no matter what surface it sits on.
+# Each color is a (light, dark) pair so the whole UI follows the appearance
+# toggle. customtkinter widgets accept the tuple directly and pick the right
+# side for the current mode; for raw Tk bits (text-widget tags) use pick().
+# Status colors keep their meaning-color in both themes, tuned for contrast
+# on that theme's surfaces.
 
-OK = "#34D399"        # success green
-WARN = "#FBBF24"      # warning amber
-DANGER = "#F87171"    # error red
+OK = ("#059669", "#34D399")        # success green
+WARN = ("#B45309", "#FBBF24")      # warning amber
+DANGER = ("#DC2626", "#F87171")    # error red
 
-BG = "#0B1120"        # main background
-CARD = "#111827"      # raised card surface
-WELL = "#0F172A"      # sunken well (tables, log panes)
-CONSOLE_BG = "#060B15"  # near-black console well
-LINE = "#1F2937"      # subtle border line
+BG = ("#EEF2F7", "#0B1120")        # main background
+CARD = ("#FFFFFF", "#111827")      # raised card surface
+WELL = ("#E9EEF5", "#0F172A")      # sunken well (tables, panes)
+CONSOLE_BG = ("#F4F7FB", "#060B15")  # console well
+CONSOLE_TEXT = ("#1E293B", "#CDDBEA")  # default console text
+LINE = ("#D3DAE6", "#1F2937")      # subtle border line
 
-ACCENT = "#1D4ED8"
-ACCENT_HOVER = "#2563EB"
-ACCENT_LIGHT = "#3B82F6"
+ACCENT = ("#2563EB", "#1D4ED8")
+ACCENT_HOVER = ("#1D4ED8", "#2563EB")
+ACCENT_LIGHT = ("#2563EB", "#3B82F6")
 
-INK = "#E5E7EB"       # primary text
-MUTED = "#9CA3AF"     # secondary text
-FAINT = "#6B7280"     # tertiary text
-SOFT = "#CBD5E1"      # soft body text
+INK = ("#0F172A", "#E5E7EB")       # primary text
+MUTED = ("#64748B", "#9CA3AF")     # secondary text
+FAINT = ("#94A3B8", "#6B7280")     # tertiary text
+SOFT = ("#334155", "#CBD5E1")      # soft body text
 
-GRAY_BTN = "#374151"
-GRAY_BTN_HOVER = "#4B5563"
-RED_BTN = "#7F1D1D"
-RED_BTN_HOVER = "#991B1B"
+# Buttons keep white text, so their light-mode fills stay dark enough to read.
+GRAY_BTN = ("#64748B", "#374151")
+GRAY_BTN_HOVER = ("#475569", "#4B5563")
+RED_BTN = ("#B91C1C", "#7F1D1D")
+RED_BTN_HOVER = ("#991B1B", "#991B1B")
+
+
+def pick(color):
+    """Resolve a (light, dark) pair to the single hex for the current mode.
+    Used for raw Tk APIs (text-widget tag colors) that don't accept tuples."""
+    if isinstance(color, tuple):
+        return color[0] if ctk.get_appearance_mode() == "Light" else color[1]
+    return color
 
 
 def classify_log_line(message: str) -> str:
@@ -519,6 +545,14 @@ class BandwidthReportManager(ctk.CTk):
         self._applied_scale = scale
         ctk.set_widget_scaling(scale)
 
+    def on_appearance_change(self, choice):
+        """Light/Dark toggle. customtkinter re-resolves every (light, dark)
+        color pair automatically; only the raw Tk console tags need a nudge."""
+        mode = "light" if "Light" in choice else "dark"
+        ctk.set_appearance_mode(mode)
+        self.apply_console_theme()
+        self.log(f"Switched to {mode} mode.")
+
     # --------------------------------------------------------
     # Layout
     # --------------------------------------------------------
@@ -561,18 +595,40 @@ class BandwidthReportManager(ctk.CTk):
         self.btn_afternoon = self.sidebar_button("▶  Run Afternoon Report", self.run_afternoon_report)
         self.btn_folder = self.sidebar_button("📁  Open Reports Folder", self.open_reports_folder)
         self.btn_refresh = self.sidebar_button("🔄  Refresh Scheduler", self.refresh_task_status)
+        self.btn_interfaces = self.sidebar_button("🖧  Interfaces", self.open_interfaces_window, color="gray")
         self.btn_options = self.sidebar_button("⚙  Options", self.open_options_window, color="gray")
         self.btn_guide = self.sidebar_button("📖  User Guide", self.open_help_window, color="gray")
-        self.btn_logs = self.sidebar_button("🧹  Clear Console", self.clear_console, color="gray")
         self.btn_exit = self.sidebar_button("⎋  Exit", self.on_close, color="red")
 
+        # Bottom cluster (packed bottom-up: version lowest, toggle above it).
         bottom_label = ctk.CTkLabel(
             self.sidebar,
             text=f"Version {APP_VERSION}",
             font=ctk.CTkFont(size=12),
             text_color=FAINT,
         )
-        bottom_label.pack(side="bottom", anchor="w", padx=24, pady=24)
+        bottom_label.pack(side="bottom", anchor="w", padx=24, pady=(6, 18))
+
+        self.appearance_seg = ctk.CTkSegmentedButton(
+            self.sidebar,
+            values=["☀ Light", "🌙 Dark"],
+            command=self.on_appearance_change,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            selected_color=ACCENT,
+            selected_hover_color=ACCENT_HOVER,
+            unselected_color=WELL,
+            unselected_hover_color=GRAY_BTN,
+        )
+        self.appearance_seg.set("🌙 Dark")
+        self.appearance_seg.pack(side="bottom", fill="x", padx=22, pady=(0, 8))
+
+        appearance_caption = ctk.CTkLabel(
+            self.sidebar,
+            text="Appearance",
+            font=ctk.CTkFont(size=12),
+            text_color=MUTED,
+        )
+        appearance_caption.pack(side="bottom", anchor="w", padx=24, pady=(10, 2))
 
     def sidebar_button(self, text, command, color="blue"):
         if color == "red":
@@ -758,14 +814,19 @@ class BandwidthReportManager(ctk.CTk):
             panel,
             corner_radius=10,
             fg_color=CONSOLE_BG,
-            text_color="#CDDBEA",
+            text_color=CONSOLE_TEXT,
             font=ctk.CTkFont(family="Consolas", size=12),
         )
         self.console_box.grid(row=2, column=0, sticky="nsew", padx=12, pady=(2, 12))
         self.console_box.configure(state="disabled")
+        self.apply_console_theme()
+
+    def apply_console_theme(self):
+        """(Re)apply the console text-tag colors for the current appearance
+        mode. Tk tag colors are raw hex, so they need re-picking on a toggle."""
         for tag, color in (("err", DANGER), ("warn", WARN), ("ok", OK),
-                           ("info", "#CDDBEA"), ("sys", ACCENT_LIGHT)):
-            self.console_box.tag_config(tag, foreground=color)
+                           ("info", CONSOLE_TEXT), ("sys", ACCENT_LIGHT)):
+            self.console_box.tag_config(tag, foreground=pick(color))
 
     def action_button(self, parent, column, icon, title, subtitle, command):
         frame = ctk.CTkButton(
@@ -1311,10 +1372,10 @@ class BandwidthReportManager(ctk.CTk):
         )
         box.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 20))
 
-        box.tag_config("h1", foreground=ACCENT_LIGHT)
-        box.tag_config("h2", foreground=ACCENT_LIGHT)
-        box.tag_config("dim", foreground=FAINT)
-        box.tag_config("body", foreground=INK)
+        box.tag_config("h1", foreground=pick(ACCENT_LIGHT))
+        box.tag_config("h2", foreground=pick(ACCENT_LIGHT))
+        box.tag_config("dim", foreground=pick(FAINT))
+        box.tag_config("body", foreground=pick(INK))
         # Heavier heading fonts via the underlying Tk widget where available;
         # the color tags above already carry the structure if this fails.
         try:
@@ -1351,6 +1412,195 @@ class BandwidthReportManager(ctk.CTk):
                 box.insert("end", text + "\n", "body")
 
         box.configure(state="disabled")
+
+    # --------------------------------------------------------
+    # Interfaces editor window
+    # --------------------------------------------------------
+
+    def open_interfaces_window(self):
+        """Add / edit / delete the monitored interfaces and their optional
+        bandwidth limits. Writes interfaces.json, which both report scripts
+        read at startup."""
+        if interfaces_config is None:
+            self.log("ERROR: interfaces_config.py is missing — cannot edit interfaces.")
+            messagebox.showerror(
+                "Interfaces unavailable",
+                "interfaces_config.py must sit next to the app to edit interfaces.",
+                parent=self,
+            )
+            return
+
+        window = ctk.CTkToplevel(self, fg_color=BG)
+        window.title("Interfaces")
+        window.geometry("900x660")
+        window.minsize(740, 540)
+        window.transient(self)
+        window.after(150, window.grab_set)
+        window.focus()
+        self.apply_icon(window)
+        self.iface_window = window
+
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(3, weight=1)
+
+        title = ctk.CTkLabel(window, text="Interfaces", font=ctk.CTkFont(size=28, weight="bold"))
+        title.grid(row=0, column=0, sticky="w", padx=28, pady=(24, 2))
+
+        subtitle = ctk.CTkLabel(
+            window,
+            text="Add, edit, or remove the monitored interfaces (MSUID). Bandwidth limit is in "
+                 "Gbps —\nleave it blank to read the capacity from the report PDF. "
+                 "“Skip low-BW alert” excludes an\ninterface from the "
+                 "“dipped below 1 Mbps” check. Changes apply to the next report run.",
+            font=ctk.CTkFont(size=13),
+            text_color=SOFT,
+            justify="left",
+        )
+        subtitle.grid(row=1, column=0, sticky="w", padx=28, pady=(0, 12))
+
+        self.iface_list = ctk.CTkScrollableFrame(window, fg_color=WELL, corner_radius=10)
+        self.iface_list.grid(row=3, column=0, sticky="nsew", padx=28, pady=(0, 10))
+        self.iface_list.grid_columnconfigure(0, weight=1)
+
+        self._iface_rows = []
+        for entry in interfaces_config.load():
+            self._add_interface_row(entry)
+
+        add_btn = ctk.CTkButton(
+            window,
+            text="＋  Add interface",
+            command=lambda: self._add_interface_row(focus=True),
+            height=36,
+            fg_color=GRAY_BTN,
+            hover_color=GRAY_BTN_HOVER,
+        )
+        add_btn.grid(row=4, column=0, sticky="w", padx=28, pady=(0, 6))
+
+        self.iface_status = ctk.CTkLabel(
+            window, text="", font=ctk.CTkFont(size=13), text_color=MUTED,
+            wraplength=820, justify="left",
+        )
+        self.iface_status.grid(row=5, column=0, sticky="w", padx=28, pady=(0, 4))
+
+        button_row = ctk.CTkFrame(window, fg_color="transparent")
+        button_row.grid(row=6, column=0, sticky="ew", padx=28, pady=(0, 20))
+        button_row.grid_columnconfigure(0, weight=1)
+
+        restore_btn = ctk.CTkButton(
+            button_row, text="Restore defaults", width=150,
+            command=self._restore_default_interfaces,
+            fg_color=GRAY_BTN, hover_color=GRAY_BTN_HOVER,
+        )
+        restore_btn.grid(row=0, column=0, sticky="w")
+
+        save_btn = ctk.CTkButton(
+            button_row, text="Save", width=140, command=self._save_interfaces,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+        )
+        save_btn.grid(row=0, column=1, padx=(8, 0))
+
+        close_btn = ctk.CTkButton(
+            button_row, text="Close", width=110, command=window.destroy,
+            fg_color=GRAY_BTN, hover_color=GRAY_BTN_HOVER,
+        )
+        close_btn.grid(row=0, column=2, padx=(8, 0))
+
+    def _add_interface_row(self, entry=None, focus=False):
+        entry = entry or {"name": "", "bandwidth_gbps": None, "exclude_dip": False}
+
+        row = ctk.CTkFrame(self.iface_list, fg_color=CARD, corner_radius=8)
+        row.pack(fill="x", padx=6, pady=4)
+        row.grid_columnconfigure(0, weight=1)
+
+        name_entry = ctk.CTkEntry(row, placeholder_text="EXAMPLE-GO...-TH-10GEth0/1*")
+        name_entry.grid(row=0, column=0, sticky="ew", padx=(10, 8), pady=8)
+        if entry.get("name"):
+            name_entry.insert(0, entry["name"])
+
+        bw_entry = ctk.CTkEntry(row, width=90, placeholder_text="auto")
+        bw_entry.grid(row=0, column=1, padx=(8, 2), pady=8)
+        if entry.get("bandwidth_gbps") is not None:
+            bw_entry.insert(0, format_bandwidth_value(entry["bandwidth_gbps"]))
+
+        gbps_label = ctk.CTkLabel(row, text="Gbps", font=ctk.CTkFont(size=12), text_color=MUTED)
+        gbps_label.grid(row=0, column=2, padx=(0, 10), pady=8)
+
+        excl_check = ctk.CTkCheckBox(row, text="Skip low-BW alert", font=ctk.CTkFont(size=12))
+        excl_check.grid(row=0, column=3, padx=(4, 12), pady=8)
+        if entry.get("exclude_dip"):
+            excl_check.select()
+
+        record = {"frame": row, "name": name_entry, "bw": bw_entry, "excl": excl_check}
+
+        delete_btn = ctk.CTkButton(
+            row, text="\U0001f5d1", width=42,
+            fg_color=RED_BTN, hover_color=RED_BTN_HOVER,
+            command=lambda: self._delete_interface_row(record),
+        )
+        delete_btn.grid(row=0, column=4, padx=(0, 10), pady=8)
+
+        self._iface_rows.append(record)
+
+        if focus:
+            name_entry.focus()
+            # Scroll the new row into view.
+            self.iface_list.after(50, lambda: self.iface_list._parent_canvas.yview_moveto(1.0))
+        return record
+
+    def _delete_interface_row(self, record):
+        label = record["name"].get().strip() or "this interface"
+        if not messagebox.askyesno(
+            "Delete interface",
+            f"Delete “{label}” from the list?",
+            parent=self.iface_window,
+        ):
+            return
+        record["frame"].destroy()
+        self._iface_rows.remove(record)
+
+    def _collect_interface_rows(self) -> list:
+        return [
+            {
+                "name": r["name"].get(),
+                "bandwidth_gbps": r["bw"].get(),
+                "exclude_dip": bool(r["excl"].get()),
+            }
+            for r in self._iface_rows
+        ]
+
+    def _save_interfaces(self):
+        entries = self._collect_interface_rows()
+        try:
+            interfaces_config.save(entries)
+        except OSError as error:
+            self.iface_status.configure(text=f"Could not save: {error}", text_color=DANGER)
+            self.log(f"ERROR saving interfaces: {error}")
+            return
+
+        saved = interfaces_config.load()
+        dropped = len(entries) - len(saved)
+        note = f"Saved {len(saved)} interface(s). Applies to the next report run."
+        if dropped > 0:
+            note += f"  ({dropped} blank/duplicate row(s) skipped.)"
+        self.iface_status.configure(text=note, text_color=OK)
+        self.log(f"Interfaces saved ({len(saved)}).")
+
+    def _restore_default_interfaces(self):
+        if not messagebox.askyesno(
+            "Restore defaults",
+            "Replace the current list with the built-in default interfaces?\n"
+            "This is not saved until you press Save.",
+            parent=self.iface_window,
+        ):
+            return
+        for record in list(self._iface_rows):
+            record["frame"].destroy()
+        self._iface_rows.clear()
+        for entry in interfaces_config.DEFAULT_INTERFACES:
+            self._add_interface_row(dict(entry))
+        self.iface_status.configure(
+            text="Defaults restored — press Save to keep them.", text_color=WARN
+        )
 
     # --------------------------------------------------------
     # Reports folder
